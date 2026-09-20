@@ -24,6 +24,21 @@ test.describe('Game Listing and Navigation', () => {
     });
   });
 
+  test('should filter the games list by category and publisher', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.getByTestId('games-grid')).toBeVisible();
+    await page.getByTestId('category-filter-strategy').check();
+    await expect(page.locator('[data-testid="game-card"]:visible')).toHaveCount(4);
+
+    await page.getByTestId('publisher-filter').selectOption({ label: 'CodeForge Studios' });
+    await expect(page.locator('[data-testid="game-card"]:visible')).toHaveCount(1);
+    await expect(page.locator('[data-testid="game-card"]:visible').filter({ hasText: 'DevOps Dominion' })).toBeVisible();
+
+    await page.getByTestId('clear-filters').click();
+    await expect(page.locator('[data-testid="game-card"]:visible')).toHaveCount(21);
+  });
+
   test('should navigate to correct game details page when clicking on a game', async ({ page }) => {
     let gameId: string | null;
     let gameTitle: string | null;
