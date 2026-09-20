@@ -3,9 +3,12 @@ import { createTestDatabase } from '../../db/test-helpers';
 import { categories, publishers, games } from '../../db/schema';
 import type { Database } from './db';
 import {
+    getAllCategories,
     getAllGames,
     getAllGameIds,
+    getAllPublishers,
     getGameById,
+    getGamesByCategory,
 } from './games';
 
 async function seedGames(db: Database, count: number): Promise<void> {
@@ -18,7 +21,6 @@ async function seedGames(db: Database, count: number): Promise<void> {
         .values({ name: 'Pub One', description: 'pub' })
         .returning({ id: publishers.id });
 
-    // Insert titles in reverse-alphabetical order to prove ordering is applied.
     for (let i = count; i >= 1; i--) {
         await db.insert(games).values({
             title: `Game ${String(i).padStart(2, '0')}`,
@@ -28,6 +30,32 @@ async function seedGames(db: Database, count: number): Promise<void> {
             publisherId: publisher.id,
         });
     }
+}
+
+async function seedFilteredGames(db: Database): Promise<void> {
+    const [strategy] = await db
+        .insert(categories)
+        .values({ name: 'Strategy', description: 'cat-1' })
+        .returning({ id: categories.id });
+    const [puzzle] = await db
+        .insert(categories)
+        .values({ name: 'Puzzle', description: 'cat-2' })
+        .returning({ id: categories.id });
+    const [codeForge] = await db
+        .insert(publishers)
+        .values({ name: 'CodeForge Studios', description: 'pub-1' })
+        .returning({ id: publishers.id });
+    const [devMasters] = await db
+        .insert(publishers)
+        .values({ name: 'DevMasters Inc.', description: 'pub-2' })
+        .returning({ id: publishers.id });
+
+    await db.insert(games).values([
+        { title: 'Alpha Quest', description: 'Alpha strategy', starRating: 4.5, categoryId: strategy.id, publisherId: codeForge.id },
+        { title: 'Beta Quest', description: 'Beta strategy', starRating: 4.1, categoryId: strategy.id, publisherId: devMasters.id },
+        { title: 'Gamma Puzzle', description: 'Gamma puzzle', starRating: 3.8, categoryId: puzzle.id, publisherId: codeForge.id },
+        { title: 'Delta Puzzle', description: 'Delta puzzle', starRating: 4.0, categoryId: puzzle.id, publisherId: devMasters.id },
+    ]);
 }
 
 describe('games data-access helpers', () => {
@@ -50,6 +78,43 @@ describe('games data-access helpers', () => {
         const ids = await getAllGameIds(db);
         const all = await getAllGames(db);
         expect(ids).toEqual(all.map((g) => g.id));
+    });
+
+    it('returns all categories and publishers in name order', async () => {
+        await seedFilteredGames(db);
+        await expect(getAllCategories(db)).resolves.toEqual([
+            { id: expect.any(Number), name: 'Puzzle' },
+            { id: expect.any(Number), name: 'Strategy' },
+        ]);
+        await expect(getAllPublishers(db)).resolves.toEqual([
+            { id: expect.any(Number), name: 'CodeForge Studios' },
+            { id: expect.any(Number), name: 'DevMasters Inc.' },
+        ]);
+    });
+
+    it('filters games by category ids', async () => {
+        await seedFilteredGames(db);
+        const category = (await getAllCategories(db)).find((item) => item.name === 'Strategy');
+
+        expect(category).toBeDefined();
+        const gamesByCategory = await getGamesByCategory(db, category!.id);
+        expect(gamesByCategory.map((game) => game.title)).toEqual(['Alpha Quest', 'Beta Quest']);
+    });
+
+    it('combines category and publisher filters', async () => {
+        await seedFilteredGames(db);
+        const strategyCategory = (await getAllCategories(db)).find((item) => item.name === 'Strategy');
+        const codeForgePublisher = (await getAllPublishers(db)).find((item) => item.name === 'CodeForge Studios');
+
+        expect(strategyCategory).toBeDefined();
+        expect(codeForgePublisher).toBeDefined();
+
+        const filteredGames = await getAllGames(db, {
+            categoryIds: [strategyCategory!.id],
+            publisherIds: [codeForgePublisher!.id],
+        });
+
+        expect(filteredGames.map((game) => game.title)).toEqual(['Alpha Quest']);
     });
 
     it('fetches a single game by id', async () => {
